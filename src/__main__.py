@@ -5,7 +5,6 @@ except ImportError:
     import os
     sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from contextlib import asynccontextmanager
 
 import uvicorn
 import redis.asyncio as redis
@@ -13,31 +12,23 @@ from fastapi import FastAPI, Request, Response, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.redis_client import RedisClient
-from src.database import init_db
 from src.services import blocklist_service
+from src.handlers.gateway import GatewayHandler
 
 from src.settings import settings
 
 
-redis_c = redis.ConnectionPool.from_url(settings.REDIS_URL, decode_responses=True)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await init_db()
-
-    app.state.redis = RedisClient(
-        redis_pool=redis_c,
-        prefix=settings.REDIS_PREFIX,
-        expire=settings.REDIS_EXPIRE
-    )
-    yield
+redis_c = RedisClient(
+    redis.ConnectionPool.from_url(settings.REDIS_URL, decode_responses=True),
+    settings.REDIS_PREFIX,
+    settings.REDIS_EXPIRE
+)
+gateway_handler = GatewayHandler(redis=redis_c)
 
 
 app = FastAPI(
     title='NCT Gateway',
     version='0.1.0',
-    lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
     openapi_url=None
@@ -58,8 +49,6 @@ async def gateway_handler(request: Request, path: str):
     Основной обработчик всех запросов
     """
     try:
-        # Создание процессора
-        processor = GatewayProcessor(request)
 
         # Обработка запроса со всеми проверками
         return await processor.process_request()
@@ -75,11 +64,6 @@ async def gateway_handler(request: Request, path: str):
             status_code=500,
             content={"detail": "Internal server error"}
         )
-
-
-@app.middleware('http')
-async def blocker(request: Request, call_next):
-    return await call_next(request)
 
 
 if __name__ == "__main__":
