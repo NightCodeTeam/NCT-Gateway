@@ -3,7 +3,8 @@ import json
 from dataclasses import dataclass
 
 import httpx
-from fastapi import Request, HTTPException, status, StreamingResponse
+from fastapi import Request, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from core.redis_client import RedisClient
 
