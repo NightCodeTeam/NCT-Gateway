@@ -127,19 +127,21 @@ class GatewayProcessor:
         """
         Передаем запрос к приложению.
         """
+        # Чистим заголовки
         headers = dict(request.headers)
-        headers.pop('app_redirect', None)
         hop_by_hop_headers = [
             'connection', 'keep-alive', 'proxy-authenticate',
             'proxy-authorization', 'te', 'trailers',
             'transfer-encoding', 'upgrade',
-            'app_redirect'
+            'app_redirect' # Удаляем и заголовок переадресации
         ]
+        for header in hop_by_hop_headers:
+            headers.pop(header, None)
+
+        # Формируем URL
         url = f'{app.redirect_url}{request.url.path}'
         if request.url.query:
             url = f'{url}?{request.url.query}'
-        for header in hop_by_hop_headers:
-            headers.pop(header, None)
 
         # Отправка запроса
         response = await self.__client.request(
@@ -149,6 +151,8 @@ class GatewayProcessor:
             content=await request.body(),
             timeout=30.0
         )
+
+        # Очищаем заголовки
         response_headers = dict(response.headers)
         for header in hop_by_hop_headers:
             response_headers.pop(header, None)
