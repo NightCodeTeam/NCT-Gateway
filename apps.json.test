@@ -1,8 +1,8 @@
 {
     "apps": [
         {
-            "name": "TestApp",
-            "redirect_url": "http://localhost:8080",
+            "name": "",
+            "redirect_url": "",
             "blocker_check": true,
             "auth_only": false,
             "allowed_methods": ["GET", "POST"],

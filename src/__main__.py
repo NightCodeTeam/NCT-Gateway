@@ -6,17 +6,21 @@ except ImportError:
     sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 import logging
-
 import uvicorn
 import redis.asyncio as redis
 from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.redis_client import RedisClient
+from core.debug import LoggerManager
 from src.services import blocklist_service
 from src.gateway.base import GatewayProcessor
 
 from src.settings import settings
+
+
+logger_manager = LoggerManager()
+logger = logging.getLogger(__name__)
 
 
 redis_c = RedisClient(
@@ -24,7 +28,7 @@ redis_c = RedisClient(
     settings.REDIS_PREFIX,
     settings.REDIS_EXPIRE
 )
-processor = GatewayProcessor(redis=redis_c)
+processor = GatewayProcessor(redis=redis_c, apps_path='apps.json')
 
 
 app = FastAPI(
@@ -33,14 +37,6 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
     openapi_url=None
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.FRONTEND_URL.split(','),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
 )
 
 
@@ -54,7 +50,7 @@ async def gateway_handler(request: Request):
         return await processor.process_request(request)
 
     except Exception as e:
-        logging.exception(f"Gateway error > e")
+        logger.exception(e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail='Internal server error'

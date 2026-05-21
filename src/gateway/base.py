@@ -11,7 +11,7 @@ from core.redis_client import RedisClient
 from src.services.blocklist import blocklist_service
 
 from .limiter import TokenBucket
-from .exceptions import AppFileNotExist
+from .exceptions import AppFileNotExist, AppsNotProvided
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,7 +22,7 @@ class App:
     blocker_check: bool = True
     auth_only: bool = False
     allowed_methods: tuple[str, ...] = ()
-    unacceptable_paths: tuple[str, ...] = ('.env',)
+    unacceptable_paths: tuple[str, ...] = ('/.env',)
 
     max_rpm: int = 500
 
@@ -36,20 +36,30 @@ class GatewayProcessor:
     __timers: dict[str, TokenBucket] = {}
     __client = httpx.AsyncClient(timeout=30.0)
 
-    def __init__(self, redis: RedisClient):
+    def __init__(
+        self,
+        redis: RedisClient,
+        apps: tuple[App, ...] | None = None,
+        apps_path: str | None = None,
+    ):
         self.__redis = redis
-        self.__load_apps()
+        if apps is not None:
+            self.__apps = {app.name: app for app in apps}
+        else:
+            if apps_path is None:
+                raise AppsNotProvided()
+            self.__load_apps(apps_path)
 
-    def __load_apps(self):
+    def __load_apps(self, apps_path: str):
         """
         Подгружаем список приложений из apps.json.
         """
-        if not os.path.exists('apps.json'):
+        if not os.path.exists(apps_path):
             raise AppFileNotExist('apps.json')
 
         with open('apps.json') as f:
             data = json.load(f)
-            for app in data:
+            for app in data['apps']:
                 prepared_app = App(**app)
                 self.__apps[app['name']] = prepared_app
                 self.__timers[app['name']] = TokenBucket(prepared_app.max_rpm)
@@ -95,7 +105,7 @@ class GatewayProcessor:
         """
         Проверка максимального количества запросов.
         """
-        if self.__timers[app.name].consume():
+        if not self.__timers[app.name].consume():
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             )
@@ -109,8 +119,11 @@ class GatewayProcessor:
                 client_ip,
                 reason=f'Gateway > Unacceptable path: {request.url.path}'
             )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
 
-    async def proxy_request(self, request: Request, app: App) -> StreamingResponse:
+    async def __proxy_request(self, request: Request, app: App) -> StreamingResponse:
         """
         Передаем запрос к приложению.
         """
@@ -152,10 +165,11 @@ class GatewayProcessor:
 
         # Запрашиваем из сервиса блокировок разрешен ли доступ к приложению
         # Если доступ запрещен, выбрасываем исключение 403
-        if await blocklist_service.in_ban(client_ip, self.__redis):
+        if app.blocker_check and await blocklist_service.in_ban(client_ip, self.__redis):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail='Access denied'
             )
 
         # Отправляем запрос к приложению
+        await self.__proxy_request(request, app)
