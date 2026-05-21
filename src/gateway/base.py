@@ -127,20 +127,38 @@ class GatewayProcessor:
         """
         Передаем запрос к приложению.
         """
+        headers = dict(request.headers)
+        headers.pop('app_redirect', None)
+        hop_by_hop_headers = [
+            'connection', 'keep-alive', 'proxy-authenticate',
+            'proxy-authorization', 'te', 'trailers',
+            'transfer-encoding', 'upgrade',
+            'app_redirect'
+        ]
+        url = f'{app.redirect_url}{request.url.path}'
+        if request.url.query:
+            url = f'{url}?{request.url.query}'
+        for header in hop_by_hop_headers:
+            headers.pop(header, None)
+
+        # Отправка запроса
         response = await self.__client.request(
             method=request.method,
-            url=f'{app.redirect_url}{request.url.path}',
-            headers=request.headers,
-            content=await request.body()
+            url=url,
+            headers=headers,
+            content=await request.body(),
+            timeout=30.0
         )
+        response_headers = dict(response.headers)
+        for header in hop_by_hop_headers:
+            response_headers.pop(header, None)
 
         # Возврат ответа
         return StreamingResponse(
             response.aiter_bytes(),
             status_code=response.status_code,
-            headers=dict(response.headers)
+            headers=response_headers
         )
-
 
     async def process_request(self, request: Request):
         """
